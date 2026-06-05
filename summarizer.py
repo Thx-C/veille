@@ -1,4 +1,4 @@
-# summarizer.py — résumé des articles via Google Gemini API (gemini-1.5-flash, gratuit)
+# summarizer.py — résumé des articles via Google Gemini API (gemini-2.5-flash, gratuit)
 
 import json
 import re
@@ -21,7 +21,7 @@ SYSTEM_PROMPT = """Tu es un analyste expert en veille technologique spécialisé
 Ton rôle est de produire des résumés concis, factuels et directement actionnables pour un public technique.
 Réponds toujours en français. Sois précis, évite les formulations vagues.
 Ne commence jamais une réponse par "Bien sûr" ou équivalent.
-Réponds UNIQUEMENT avec le JSON demandé — aucun texte avant ou après, aucun bloc markdown, aucun backtick."""
+Réponds UNIQUEMENT avec le JSON demandé."""
 
 ARTICLE_PROMPT = """Voici un article de veille. Produis un résumé structuré en JSON strict.
 
@@ -31,64 +31,51 @@ Source : {source}
 Contenu : {summary}
 URL : {url}
 
-Réponds UNIQUEMENT avec ce JSON (pas de backticks, pas de markdown) :
+Réponds au format JSON suivant :
 {{
   "titre_court": "<titre reformulé en 8 mots max>",
   "resume": "<2-3 phrases factuelles sur ce qui se passe et pourquoi c'est important>",
   "impact": "<Faible|Moyen|Élevé>",
-  "tag_principal": "<un seul tag parmi : #CVE #LLM-exploit #agent-security #détection #red-team #RLHF #gouvernance #biais #regulation-EU #AGI-safety #IA-offensive>",
-  "action": "<Surveiller|Approfondir|Traiter en urgence>"
+  "tag_principal": "<un seul mot-clé pertinent>"
 }}"""
 
-FLASH_PROMPT = """Tu as analysé {n_cyber} articles sur l'IA & cybersécurité et {n_align} articles sur l'alignement IA cette semaine.
+FLASH_PROMPT = """Voici les éléments collectés cette semaine. Produis une synthèse de haut niveau au format JSON strict.
 
-Articles cyber (résumés) :
+Statistiques : {n_cyber} articles cyber, {n_align} articles alignement.
+
+Liste Cybersécurité :
 {cyber_list}
 
-Articles alignement (résumés) :
+Liste Alignement :
 {align_list}
 
-CVE critiques CISA cette semaine :
+Liste CVE critiques :
 {cve_list}
 
-Produis le flash hebdo complet en JSON strict (pas de backticks, pas de markdown) :
+Génère un résumé global (Flash) respectant STRICTEMENT cette structure JSON :
 {{
-  "chiffre_semaine": {{
-    "valeur": "<chiffre ou stat clé extraite des articles>",
-    "contexte": "<une phrase expliquant ce chiffre>"
-  }},
-  "signal_fort_cyber": {{
-    "titre": "<titre court>",
-    "resume": "<3 phrases : ce qui s'est passé, pourquoi c'est important, ce qu'il faut faire>",
-    "source": "<nom de la source>",
-    "url": "<url>",
-    "impact": "<Faible|Moyen|Élevé>"
-  }},
-  "signal_fort_alignement": {{
-    "titre": "<titre court>",
-    "resume": "<3 phrases>",
-    "source": "<nom de la source>",
-    "url": "<url>",
-    "impact": "<Faible|Moyen|Élevé>"
-  }},
-  "signal_croise": "<2 phrases sur un sujet touchant à la fois cyber et alignement cette semaine>",
-  "a_surveiller": ["<point 1>", "<point 2>", "<point 3>"],
-  "tableau_cyber": [
-    {{"titre": "", "source": "", "tag": "", "pertinence": 1}},
-    {{"titre": "", "source": "", "tag": "", "pertinence": 2}},
-    {{"titre": "", "source": "", "tag": "", "pertinence": 3}}
+  "titre_editorial": "<Titre accrocheur et pro pour la semaine>",
+  "en_bref": "<Synthèse globale de la semaine en 3-4 phrases marquantes>",
+  "points_cles": [
+    "<Fait marquant 1 avec explication technique>",
+    "<Fait marquant 2 avec explication technique>",
+    "<Fait marquant 3 avec explication technique>"
   ],
-  "tableau_alignement": [
-    {{"titre": "", "source": "", "tag": "", "pertinence": 1}},
-    {{"titre": "", "source": "", "tag": "", "pertinence": 2}},
-    {{"titre": "", "source": "", "tag": "", "pertinence": 3}}
+  "tendances": [
+    {{"sujet": "<Nom de la tendance>", "description": "<Pourquoi ça monte en puissance>"}},
+    {{"sujet": "<Nom de la tendance>", "description": "<Pourquoi ça monte en puissance>"}}
+  ],
+  "a_surveiller": [
+    "<Événement, entreprise ou techno à suivre de près>",
+    "<Autre élément à suivre>"
   ]
 }}"""
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers API ───────────────────────────────────────────────────────────────
 
 def _call_gemini(prompt: str, max_tokens: int = 512) -> str:
+    """Effectue l'appel à l'API Gemini avec gestion des quotas (429) et indisponibilités (503)."""
     full_prompt = SYSTEM_PROMPT + "\n\n" + prompt
     for attempt in range(3):
         try:
@@ -98,73 +85,74 @@ def _call_gemini(prompt: str, max_tokens: int = 512) -> str:
                 config=types.GenerateContentConfig(
                     max_output_tokens=max_tokens,
                     temperature=0.2,
-                    # Force Gemini à répondre en JSON pur (pas de texte, pas de backticks ```json)
-                    response_mime_type="application/json", 
+                    # Forçage du mode JSON natif : supprime le besoin de regex/nettoyage de markdown
+                    response_mime_type="application/json",
                 ),
             )
             return response.text.strip()
         except Exception as e:
             err = str(e)
-            if "429" in err or "quota" in err.lower() or "rate" in err.lower():
+            # Gestion des limites de taux (429) et des indisponibilités de service (503)
+            if any(k in err.lower() for k in ["429", "503", "quota", "rate", "unavailable"]):
                 wait = 60 * (attempt + 1)
-                print(f"    [Gemini] Rate limit — attente {wait}s…")
+                print(f"    [Gemini] Erreur temporaire ({err[:40].strip()}) — attente {wait}s avant retry…")
                 time.sleep(wait)
             else:
-                print(f"    [Gemini] Erreur: {e}")
+                print(f"    [Gemini] Erreur critique : {e}")
                 raise
-    raise RuntimeError("Gemini rate limit persistant après 3 tentatives")
+    raise RuntimeError("L'API Gemini est restée indisponible après 3 tentatives.")
 
 
 def _parse_json(text: str) -> dict:
-    """Nettoie et parse le JSON retourné par Gemini."""
-    # Supprime les éventuels blocs ```json … ``` malgré les instructions
-    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
-    text = re.sub(r"```\s*$",          "", text, flags=re.MULTILINE)
-    return json.loads(text.strip())
+    """Parse le texte JSON reçu directement depuis l'API."""
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        print(f"    [Parsing] Échec de la lecture du JSON natif : {e}")
+        return {}
 
 
-# ── Résumé d'un article individuel ───────────────────────────────────────────
+# ── Générateurs unitaires ─────────────────────────────────────────────────────
 
 def summarize_article(article: dict) -> dict:
-    """Résume un article via Gemini et retourne un dict enrichi."""
+    """Prend un article brut, demande un résumé à Gemini et fusionne le résultat."""
     prompt = ARTICLE_PROMPT.format(
-        title=article["title"],
-        source=article["source"],
-        summary=article["summary"],
-        url=article["url"],
+        title=article.get("title", ""),
+        source=article.get("source", ""),
+        summary=article.get("summary", ""),
+        url=article.get("url", ""),
     )
-    # Pause préventive : free tier = 15 req/min → 1 req toutes les 4s minimum
-    time.sleep(4)
+    title_snippet = article.get("title", "")[:60]
+    print(f"  Résumé: {title_snippet}…")
+
     try:
-        text   = _call_gemini(prompt, max_tokens=512)
-        parsed = _parse_json(text)
-        return {**article, **parsed}
+        json_txt = _call_gemini(prompt, max_tokens=512)
+        ai_data = _parse_json(json_txt)
+        if ai_data:
+            return article | ai_data
     except Exception as e:
-        print(f"    [summarize_article] Fallback sur: {article['title'][:50]}… ({e})")
-        return {
-            **article,
-            "titre_court":  article["title"][:60],
-            "resume":       article["summary"][:200],
-            "impact":       "Moyen",
-            "tag_principal":"#veille",
-            "action":       "Surveiller",
-        }
+        print(f"    [summarize_article] Exception capturée : {e}")
+    
+    # Fallback si l'IA ou le parsing échouent
+    return article | {
+        "titre_court": article.get("title", "")[:40],
+        "resume": article.get("summary", "")[:150] + "...",
+        "impact": "Moyen",
+        "tag_principal": "Veille",
+    }
 
-
-# ── Génération du flash consolidé ────────────────────────────────────────────
 
 def generate_flash(articles: dict[str, list[dict]]) -> dict:
-    """
-    Synthèse globale de la semaine en un seul appel Gemini.
-    Produit le JSON complet du flash hebdo.
-    """
-    def fmt_list(lst: list[dict]) -> str:
+    """Génère la synthèse globale (Flash hebdomadaire)."""
+    print("── Génération du flash consolidé (Gemini) ──")
+
+    def fmt_list(lst):
         lines = []
-        for i, a in enumerate(lst, 1):
+        for a in lst:
             lines.append(
-                f"{i}. [{a.get('titre_court', a['title'])}] "
-                f"({a['source']}) — {a.get('resume', a['summary'][:150])} "
-                f"| Impact: {a.get('impact','?')} | {a['url']}"
+                f"- {a['title']} | Impact: {a.get('impact','?')} | {a['url']}"
             )
         return "\n".join(lines) if lines else "(aucun)"
 
@@ -182,11 +170,11 @@ def generate_flash(articles: dict[str, list[dict]]) -> dict:
     )
 
     try:
-        # Utilisez GEMINI_MAX_TOKENS (2048) au lieu de laisser la valeur par défaut à 512
+        # Augmentation des tokens à la valeur de configuration maximale (2048) pour éviter les coupures au milieu du JSON
         text = _call_gemini(prompt, max_tokens=GEMINI_MAX_TOKENS)
         return _parse_json(text)
     except Exception as e:
-        print(f"  [generate_flash] Erreur: {e}")
+        print(f"  [generate_flash] Erreur critique : {e}")
         return {}
 
 
@@ -194,7 +182,7 @@ def generate_flash(articles: dict[str, list[dict]]) -> dict:
 
 def summarize_all(articles: dict[str, list[dict]]) -> tuple[dict[str, list[dict]], dict]:
     """
-    1. Résume chaque article individuellement (avec pause anti-rate-limit).
+    1. Résume chaque article individuellement.
     2. Génère le flash consolidé.
     Retourne (articles_enrichis, flash_dict).
     """
@@ -202,11 +190,11 @@ def summarize_all(articles: dict[str, list[dict]]) -> tuple[dict[str, list[dict]
     enriched = {"cyber": [], "alignement": [], "cve": articles.get("cve", [])}
 
     for theme in ("cyber", "alignement"):
-        for art in articles[theme]:
-            print(f"  Résumé: {art['title'][:55]}…")
-            enriched[theme].append(summarize_article(art))
+        for art in articles.get(theme, []):
+            res = summarize_article(art)
+            enriched[theme].append(res)
+            # Petite pause de sécurité entre les articles pour préserver le quota gratuit
+            time.sleep(2)
 
-    print("── Génération du flash consolidé (Gemini) ──")
     flash = generate_flash(enriched)
-
     return enriched, flash
