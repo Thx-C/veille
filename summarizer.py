@@ -4,18 +4,12 @@ import json
 import re
 import time
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from config import GEMINI_API_KEY, GEMINI_MAX_TOKENS, GEMINI_MODEL
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel(
-    model_name=GEMINI_MODEL,
-    generation_config=genai.GenerationConfig(
-        max_output_tokens=GEMINI_MAX_TOKENS,
-        temperature=0.2,          # réponses stables et factuelles
-    ),
-)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
@@ -95,19 +89,22 @@ Produis le flash hebdo complet en JSON strict (pas de backticks, pas de markdown
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _call_gemini(prompt: str, max_tokens: int = 512) -> str:
-    """
-    Appel Gemini avec retry sur rate-limit (15 req/min sur le free tier).
-    Attend 5 secondes entre chaque article pour rester sous la limite.
-    """
     full_prompt = SYSTEM_PROMPT + "\n\n" + prompt
     for attempt in range(3):
         try:
-            response = model.generate_content(full_prompt)
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=full_prompt,
+                config=types.GenerateContentConfig(
+                    max_output_tokens=max_tokens,
+                    temperature=0.2,
+                ),
+            )
             return response.text.strip()
         except Exception as e:
             err = str(e)
             if "429" in err or "quota" in err.lower() or "rate" in err.lower():
-                wait = 60 * (attempt + 1)   # 60s, 120s, 180s
+                wait = 60 * (attempt + 1)
                 print(f"    [Gemini] Rate limit — attente {wait}s…")
                 time.sleep(wait)
             else:
