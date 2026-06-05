@@ -56,7 +56,7 @@ MAX_ARTICLES_PER_THEME = 8
 # ── Modèle Gemini (free tier) ─────────────────────────────────────────────────
 # Limites free tier : 15 req/min, 1 500 req/jour, 1M tokens/min
 # Modèles disponibles gratuitement : gemini-1.5-flash (recommandé), gemini-1.5-flash-8b
-GEMINI_MODEL      = "gemini-1.5-flash"
+GEMINI_MODEL      = "gemini-2.5-flash"
 GEMINI_MAX_TOKENS = 2048
 
 # ── Scheduling ────────────────────────────────────────────────────────────────
