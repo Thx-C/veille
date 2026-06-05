@@ -1,0 +1,50 @@
+# .github/workflows/veille.yml
+# Exécution automatique chaque vendredi à 07:00 UTC
+# Déclenchement manuel possible via l'onglet Actions → Run workflow
+
+name: Flash veille IA hebdomadaire
+
+on:
+  schedule:
+    - cron: "0 7 * * 5"   # Vendredi 07:00 UTC
+  workflow_dispatch:        # Déclenchement manuel
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Installation des dépendances
+        run: pip install -r requirements.txt
+
+      - name: Restauration du cache des hashes vus
+        uses: actions/cache@v4
+        with:
+          path: seen_hashes.json
+          key: seen-hashes-${{ github.run_id }}
+          restore-keys: seen-hashes-
+
+      - name: Exécution du pipeline
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          NOTION_TOKEN:      ${{ secrets.NOTION_TOKEN }}
+          NOTION_PARENT_PAGE_ID: ${{ secrets.NOTION_PARENT_PAGE_ID }}
+        run: python run_pipeline.py
+
+      - name: Upload des logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veille-logs-${{ github.run_number }}
+          path: logs/veille.log
+          retention-days: 30
