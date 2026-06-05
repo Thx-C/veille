@@ -114,38 +114,65 @@ def fetch_rss(theme: str) -> list[dict]:
 
 # ── Collecte arXiv ────────────────────────────────────────────────────────────
 
+import xml.etree.ElementTree as ET
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+def _arxiv_session() -> requests.Session:
+    """Session requests avec retry automatique sur 503 + respect du Retry-After."""
+    session = requests.Session()
+    retry = Retry(
+        total=5,
+        backoff_factor=2,
+        status_forcelist=[503],
+        respect_retry_after_header=True,  # lit le header Retry-After d'arXiv
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    session.headers.update({
+        "User-Agent": "veille-ia-pipeline/1.0 (contact: ton@email.com)"
+    })
+    return session
+
 def fetch_arxiv() -> list[dict]:
-    """Récupère les prépublications récentes des catégories configurées."""
     articles = []
-    cutoff   = datetime.now(timezone.utc) - timedelta(days=7)
-    client = arxiv.Client()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    ns = "{http://www.w3.org/2005/Atom}"
+    session = _arxiv_session()
 
     for cat in ARXIV_CATEGORIES:
+        url = (
+            "https://export.arxiv.org/api/query"
+            f"?search_query=cat:{cat}"
+            f"&sortBy=submittedDate&sortOrder=descending"
+            f"&max_results={ARXIV_MAX_RESULTS}"
+        )
         try:
-            search = arxiv.Search(
-                query=f"cat:{cat}",
-                max_results=ARXIV_MAX_RESULTS,
-                sort_by=arxiv.SortCriterion.SubmittedDate,
-            )
-            for result in client.results(search):
-                if result.published.replace(tzinfo=timezone.utc) < cutoff:
+            r = session.get(url, timeout=60)
+            r.raise_for_status()
+            root = ET.fromstring(r.text)
+            for entry in root.findall(f"{ns}entry"):
+                published = entry.findtext(f"{ns}published", "")
+                try:
+                    pub_dt = datetime.fromisoformat(published.replace("Z", "+00:00"))
+                except ValueError:
                     continue
-                # Détermine le thème dominant par score
-                title   = result.title
-                summary = result.summary[:600]
-                sc      = {t: _score_article(title, summary, t) for t in ("cyber", "alignement")}
-                theme   = max(sc, key=sc.get)
+                if pub_dt < cutoff:
+                    continue
+                title   = (entry.findtext(f"{ns}title") or "").strip()
+                summary = (entry.findtext(f"{ns}summary") or "").strip()[:600]
+                link    = entry.findtext(f"{ns}id") or ""
+                if not title or not link:
+                    continue
+                sc    = {t: _score_article(title, summary, t) for t in ("cyber", "alignement")}
+                theme = max(sc, key=sc.get)
                 if sc[theme] < SCORE_THRESHOLD:
                     continue
-
                 articles.append({
-                    "title":   title,
-                    "summary": summary,
-                    "url":     result.entry_id,
-                    "source":  f"arXiv:{cat}",
-                    "theme":   theme,
-                    "type":    "arxiv",
+                    "title": title, "summary": summary,
+                    "url": link, "source": f"arXiv:{cat}",
+                    "theme": theme, "type": "arxiv",
                 })
+            time.sleep(4)  # 1 requête toutes les 4s entre catégories
         except Exception as e:
             print(f"  [arXiv] Erreur sur {cat}: {e}")
 
