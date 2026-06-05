@@ -1,6 +1,6 @@
-import time
 google-genai>=1.0.0
 feedparser>=6.0.11
 requests>=2.31.0
 notion-client>=2.2.1
 schedule>=1.2.2
+arxiv>=2.1.0
