@@ -118,6 +118,7 @@ def fetch_arxiv() -> list[dict]:
     """Récupère les prépublications récentes des catégories configurées."""
     articles = []
     cutoff   = datetime.now(timezone.utc) - timedelta(days=7)
+    client = arxiv.Client()
 
     for cat in ARXIV_CATEGORIES:
         try:
@@ -126,7 +127,7 @@ def fetch_arxiv() -> list[dict]:
                 max_results=ARXIV_MAX_RESULTS,
                 sort_by=arxiv.SortCriterion.SubmittedDate,
             )
-            for result in search.results():
+            for result in client.results(search):
                 if result.published.replace(tzinfo=timezone.utc) < cutoff:
                     continue
                 # Détermine le thème dominant par score
