@@ -98,6 +98,8 @@ def _call_gemini(prompt: str, max_tokens: int = 512) -> str:
                 config=types.GenerateContentConfig(
                     max_output_tokens=max_tokens,
                     temperature=0.2,
+                    # Force Gemini à répondre en JSON pur (pas de texte, pas de backticks ```json)
+                    response_mime_type="application/json", 
                 ),
             )
             return response.text.strip()
@@ -180,7 +182,8 @@ def generate_flash(articles: dict[str, list[dict]]) -> dict:
     )
 
     try:
-        text = _call_gemini(prompt, max_tokens=2048)
+        # Utilisez GEMINI_MAX_TOKENS (2048) au lieu de laisser la valeur par défaut à 512
+        text = _call_gemini(prompt, max_tokens=GEMINI_MAX_TOKENS)
         return _parse_json(text)
     except Exception as e:
         print(f"  [generate_flash] Erreur: {e}")
