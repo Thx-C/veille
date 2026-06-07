@@ -6,7 +6,7 @@ name: Flash veille IA hebdomadaire
 
 on:
   schedule:
-    - cron: "0 7 * * 5"   # Vendredi 07:00 UTC
+    - cron: "0 7 * * 1"   # Vendredi 07:00 UTC
   workflow_dispatch:        # Déclenchement manuel
 
 jobs:
