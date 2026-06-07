@@ -55,9 +55,24 @@ MAX_ARTICLES_PER_THEME = 8
 
 # ── Modèle Gemini (free tier) ─────────────────────────────────────────────────
 # Limites free tier : 15 req/min, 1 500 req/jour, 1M tokens/min
-# Modèles disponibles gratuitement : gemini-1.5-flash (recommandé), gemini-1.5-flash-8b
+# À 5s de pause entre requêtes, ~12 articles = ~1 min → on reste sous les 15 req/min
+# Modèles disponibles gratuitement : gemini-2.5-flash (recommandé)
 GEMINI_MODEL      = "gemini-2.5-flash"
 GEMINI_MAX_TOKENS = 2048
+
+# Flash de secours utilisé si Gemini ne parvient pas à générer le JSON consolidé.
+# Garantit que la publication Notion a toujours lieu même en cas d'erreur API.
+FLASH_FALLBACK: dict = {
+    "titre_editorial": "Veille hebdomadaire IA & Cybersécurité",
+    "en_bref": "Le flash consolidé n'a pas pu être généré cette semaine (erreur Gemini). "
+               "Les articles individuels restent disponibles dans les sections ci-dessous.",
+    "points_cles": [
+        "Voir les articles résumés dans les sections Cybersécurité et Alignement.",
+        "Les CVE critiques CISA sont listées dans la section dédiée.",
+    ],
+    "tendances": [],
+    "a_surveiller": [],
+}
 
 # ── Scheduling ────────────────────────────────────────────────────────────────
 # Utilisé par run_pipeline.py si lancé en mode démon (schedule)

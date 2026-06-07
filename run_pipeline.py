@@ -56,8 +56,7 @@ def run_pipeline() -> None:
         enriched, flash = summarize_all(articles)
 
         if not flash:
-            log.error("Le flash n'a pas pu être généré (erreur Claude API).")
-            return
+            log.warning("Le flash consolidé n'a pas pu être généré (erreur Gemini) — publication sans flash.")
 
         # 3. Publication Notion
         notion_url = publish_to_notion(flash, enriched)

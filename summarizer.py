@@ -7,7 +7,7 @@ import time
 from google import genai
 from google.genai import types
 
-from config import GEMINI_API_KEY, GEMINI_MAX_TOKENS, GEMINI_MODEL
+from config import GEMINI_API_KEY, GEMINI_MAX_TOKENS, GEMINI_MODEL, FLASH_FALLBACK
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -128,7 +128,7 @@ def summarize_article(article: dict) -> dict:
     print(f"  Résumé: {title_snippet}…")
 
     try:
-        json_txt = _call_gemini(prompt, max_tokens=512)
+        json_txt = _call_gemini(prompt, max_tokens=GEMINI_MAX_TOKENS)
         ai_data = _parse_json(json_txt)
         if ai_data:
             return article | ai_data
@@ -172,10 +172,14 @@ def generate_flash(articles: dict[str, list[dict]]) -> dict:
     try:
         # Augmentation des tokens à la valeur de configuration maximale (2048) pour éviter les coupures au milieu du JSON
         text = _call_gemini(prompt, max_tokens=GEMINI_MAX_TOKENS)
-        return _parse_json(text)
+        result = _parse_json(text)
+        if not result:
+            print("    [generate_flash] JSON vide ou invalide — utilisation du fallback.")
+            return FLASH_FALLBACK
+        return result
     except Exception as e:
         print(f"  [generate_flash] Erreur critique : {e}")
-        return {}
+        return FLASH_FALLBACK
 
 
 # ── Pipeline complet ──────────────────────────────────────────────────────────
@@ -193,8 +197,8 @@ def summarize_all(articles: dict[str, list[dict]]) -> tuple[dict[str, list[dict]
         for art in articles.get(theme, []):
             res = summarize_article(art)
             enriched[theme].append(res)
-            # Petite pause de sécurité entre les articles pour préserver le quota gratuit
-            time.sleep(2)
+            # Pause de sécurité entre les articles pour rester sous les 15 req/min du free tier
+            time.sleep(5)
 
     flash = generate_flash(enriched)
     return enriched, flash
