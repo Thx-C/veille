@@ -4,8 +4,8 @@
 name: Flash veille IA hebdomadaire
 on:
   schedule:
-    - cron: "30 9 * * 1"   # Lundi 05:00 UTC
-  # workflow_dispatch:        # Déclenchement manuel
+    - cron: "0 10 * * 1"   # Lundi 10:00 UTC
+  workflow_dispatch:        # Déclenchement manuel
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
